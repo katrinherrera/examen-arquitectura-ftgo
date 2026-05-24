@@ -3,284 +3,221 @@
 | Campo | Valor |
 |-------|-------|
 | **Status** | Accepted |
+| **Versión** | 1.1 |
 | **Fecha** | 2026-05-24 |
 | **Decisores** | Equipo de arquitectura (STK-05) |
-| **Depende de** | ADR-0001 (descomposición híbrida + Strangler) [Accepted] |
-| **Trazabilidad** | [PRD NFR-01] [PRD NFR-05] [PRD NFR-07] [PRD NFR-08] [Brief §A.4] [Richardson Cap 3] [Richardson Cap 5] |
-| **Impacto C4** | `docs/diagrams/c4_container.mmd` **debe** incluir **Kafka / Event Broker** (`ContainerQueue`) |
+| **Depende de** | ADR-0001 v1.1 [Accepted] |
+| **Trazabilidad** | [PRD NFR-01] [PRD NFR-05] [PRD NFR-07] [PRD NFR-08] [Richardson Cap 3] [Richardson Cap 5] |
+| **Impacto C4** | `c4_container.mmd` — **ContainerQueue** Kafka obligatorio |
+| **Cambios v1.1** | F0 Kafka infra alineado ADR-0001; tablas NFR completas; regla writer único; matriz coherencia |
 
 ---
 
 ## 1. Título y status
 
-**ADR-0002 — Comunicación inter-servicios: modelo híbrido REST síncrono + eventos de dominio asíncronos (Kafka).**
+**ADR-0002 — IPC híbrida: REST síncrono (cliente y UX) + Kafka async (integración entre bounded contexts).**
 
 - **Status:** Accepted
-- **Supersede:** borrador `0002-event-driven-order-communication.md`
+- **Predominancia:** **Async (Kafka)** entre microservicios y monolito-adaptador; **REST** hacia clientes y operaciones UX críticas [PRD NFR-01].
 
 ---
 
 ## 2. Contexto
 
-Tras **ADR-0001**, FTGO evoluciona a microservicios por capability detrás de un **Strangler Fig** [PRD NFR-09]. En F1 operan **Order Service** y **Delivery Service**; en F2 **Billing**, **Notification**, **Consumer**, **Restaurant** [PRD §5.3]. El monolito legacy coexistirá y debe integrarse sin big-bang [PRD ASM-02].
+Post **ADR-0001** (híbrido incremental + Strangler). F1: Order + Delivery; billing puede permanecer en **monolito** con eventos [PRD ASM-02].
 
-**Flujos críticos (FSD):**
+| UC [FSD] | IPC necesaria |
+|----------|---------------|
+| UC-01 | REST confirmar; evento post-commit; pago vía UC-04 |
+| UC-04 | Stripe sync; resultado → Kafka `payment.events` |
+| UC-02, UC-03 | REST aceptar ticket/entrega [NFR-01] |
+| UC-05 | REST lectura tracking [NFR-04] |
 
-| UC | Necesidad de comunicación |
-|----|---------------------------|
-| UC-01 Tomar pedido | Escritura Order; disparo pago; ticket kitchen — latencia UX [NFR-01] |
-| UC-04 Procesar pago | Integración Stripe; no revertir Order si PSP cae [NFR-05] |
-| UC-02 Ticket cocina | Transición Order; notificación |
-| UC-03 Asignación courier | Order ↔ Delivery; dispatch |
-| UC-05 Tracking | Lectura con posible degradación [NFR-04] |
-
-**Requisitos que condicionan IPC:**
-
-| NFR | Implicación IPC |
-|-----|-----------------|
-| NFR-01 | p95 < 200 ms en confirmar pedido, aceptar ticket/entrega → favorece sync en write-path crítico |
-| NFR-05 | Pedido persiste si Stripe falla → favorece async desacoplado Billing → Order |
-| NFR-07 | Consistencia fuerte en aggregate Order → dueño Order; integraciones vía eventos o comandos acotados |
-| NFR-08 | correlation-id en sync y async |
-| NFR-09 | Strangler: publicar/consumir eventos desde monolito y MS durante dual-run |
-
-**Problema:** ¿Cuál es el mecanismo **predominante** entre servicios (y hacia el monolito) que equilibra latencia UX, resiliencia de pagos y evolución incremental?
+**Problema:** ¿Mecanismo predominante entre BC que cumpla NFR-01, NFR-05, NFR-07 y Strangler?
 
 ---
 
 ## 3. Opciones consideradas
 
-### Leyenda de evaluación
-
-| Símbolo | Significado |
-|---------|-------------|
-| ✓✓ | Muy favorable |
-| ✓ | Favorable |
-| ⚠ | Riesgo moderado |
-| ✗ | Desfavorable |
-
----
-
-### Opción 1: REST síncrono exclusivo
+### Opción 1: REST síncrono exclusivo (inter-servicios)
 
 #### Descripción
 
-Toda comunicación inter-servicios mediante **HTTP/REST** (JSON) con Spring WebClient/Feign. Order invoca Billing para cobro; Billing callback REST a Order; Delivery polling REST a Order. Sin broker de mensajes.
+HTTP/JSON entre Order, Billing, Delivery, Notification. Cliente → gateway → servicios. Sin broker.
 
-#### Pros
+#### Pros / Contras
 
-- Modelo simple de razonar; debugging con logs HTTP [NFR-08].
-- Latencia predecible en cadenas cortas si pocos hops (NFR-01).
-- Consistencia aparente “inmediata” si se usa 2PC (no recomendado) o orquestación sync.
-- Menor superficie operativa (sin cluster Kafka).
+- ✓ Simplicidad ops; ✓ tracing HTTP.
+- ✗ NFR-05; ✗ cadenas largas NFR-01; ✗ coupling temporal; ✗ Strangler frágil (versionado API dual).
 
-#### Contras
+#### Evaluación dimensional
 
-- **Acoplamiento temporal fuerte**: Billing caído bloquea o ralentiza UC-01 si Order espera respuesta sync — viola espíritu NFR-05 salvo timeouts complejos.
-- Cadenas REST largas (Order → Billing → Stripe → Order) degradan NFR-01.
-- Cascadas de fallos sin buffer (NFR-03).
-- Strangler dual-run frágil: monolito y MS deben exponer APIs compatibles en cada release.
-- Escalar consumidores acoplado a ratio request/response.
-
-#### Evaluación por dimensión
-
-| Dimensión | Valoración | Notas |
-|-----------|------------|-------|
-| **Latencia** | ✓ en 1 hop; ⚠ en cadenas | NFR-01 en riesgo en checkout |
-| **Resiliencia** | ⚠ | Circuit breakers mitigan, no eliminan acoplamiento |
-| **Tolerancia a fallos** | ✗ | Stripe/ Billing down afecta path sync de Order |
-| **Consistency** | ✓ local; ⚠ distribuida | Sin outbox, riesgo dual-write |
-| **Escalabilidad** | ⚠ | NFR-06 parcial vía réplicas stateless |
-| **Coupling** | ✗ | Conocimiento de endpoints y disponibilidad |
-| **Observabilidad** | ✓ | Tracing HTTP maduro [NFR-08] |
+| Dimensión | Valoración |
+|-----------|------------|
+| Latencia | ⚠ |
+| Resiliencia | ⚠ |
+| Tolerancia fallos (NFR-05) | ✗ |
+| Consistency (NFR-07) | ⚠ dual-write |
+| Escalabilidad (NFR-06) | ⚠ |
+| Coupling | ✗ |
+| Observabilidad (NFR-08) | ✓ |
 
 #### Impacto en NFRs
 
-- NFR-01 ✓ (solo si topología mínima)
-- NFR-05 ✗
-- NFR-07 ⚠
-- NFR-08 ✓
-- NFR-09 ⚠ (versionado API monolito/MS)
+| NFR | Impacto |
+|-----|---------|
+| NFR-01 | ⚠ |
+| NFR-05 | ✗ |
+| NFR-07 | ⚠ |
+| NFR-08 | ✓ |
+| NFR-09 | ⚠ |
 
-#### Strangler Fig
+#### Complejidad operativa / Migración
 
-Factible con adaptadores REST en gateway, pero cada cambio de contrato exige despliegues coordinados.
+Baja ops; migración Strangler requiere **APIs espejo** monolito↔MS por cada release.
 
 ---
 
-### Opción 2: Event-driven exclusivo (Kafka)
+### Opción 2: Event-driven exclusivo (Kafka inter-servicios)
 
 #### Descripción
 
-**Kafka** como único canal entre bounded contexts. Comandos y hechos de dominio vía topics (`order.events`, `payment.events`, `delivery.events`). Sin REST inter-servicios (API REST solo hacia clientes móvil/web vía gateway).
+Solo Kafka entre BC; REST únicamente cliente → gateway. Confirmación pedido vía consume evento.
 
-#### Pros
+#### Pros / Contras
 
-- **Desacoplamiento** Billing ↔ Order (NFR-05): PaymentPending consumido sin bloquear writer [Richardson Cap 3 — messaging].
-- Buffer ante picos 5× (NFR-02) con consumidores escalables.
-- Evolución de consumidores independiente (NFR-06).
-- Strangler: monolito como consumer/producer de eventos sin API síncrona MS↔monolito.
-- Publicación de hechos alimenta Notification (C-07) sin invocaciones directas.
+- ✓ NFR-05, NFR-02 buffer; ✓ Strangler por topics.
+- ✗ NFR-01 en write UX; ✗ ops Kafka alta; ✗ eventualidad visible.
 
-#### Contras
+#### Evaluación dimensional
 
-- **Latencia** en confirmación de pedido: consumidor debe procesar evento antes de respuesta al cliente — NFR-01 difícil si el path es 100% async.
-- **Consistencia**: solo eventual entre BC; NFR-07 requiere disciplina estricta (Order dueño, eventos de estado ordenados).
-- Complejidad operativa Kafka (ops, ACLs, rebalancing).
-- Debugging más duro (NFR-08 requiere trace en produce/consume).
-- Riesgo de **esquemas incompatibles** y mensajes duplicados (idempotencia obligatoria).
-
-#### Evaluación por dimensión
-
-| Dimensión | Valoración | Notas |
-|-----------|------------|-------|
-| **Latencia** | ⚠ / ✗ en UX write | NFR-01 conflictivo en confirmación sync |
-| **Resiliencia** | ✓✓ | Colas absorben fallos PSP |
-| **Tolerancia a fallos** | ✓✓ | NFR-05 natural |
-| **Consistency** | ⚠ eventual | NFR-07 vía Order aggregate + event sourcing lite |
-| **Escalabilidad** | ✓✓ | Consumidores Kafka |
-| **Coupling** | ✓ | Acoplamiento a contrato de evento |
-| **Observabilidad** | ⚠ | Requiere headers trace en records [NFR-08] |
+| Dimensión | Valoración |
+|-----------|------------|
+| Latencia | ✗ / ⚠ UX |
+| Resiliencia | ✓✓ |
+| Tolerancia fallos | ✓✓ |
+| Consistency | ⚠ |
+| Escalabilidad | ✓✓ |
+| Coupling | ✓ (event contract) |
+| Observabilidad | ⚠ |
 
 #### Impacto en NFRs
 
-- NFR-01 ✗ / ⚠
-- NFR-05 ✓✓
-- NFR-07 ⚠
-- NFR-08 ⚠ (sin estándar)
-- NFR-09 ✓
+| NFR | Impacto |
+|-----|---------|
+| NFR-01 | ✗ |
+| NFR-05 | ✓✓ |
+| NFR-07 | ⚠ |
+| NFR-09 | ✓ |
 
-#### Strangler Fig
+#### Complejidad operativa / Migración
 
-Muy alineado si monolito publica eventos legacy; requiere **transactional outbox** en monolito y MS.
+Alta ops; excelente para Strangler **si** se acepta latencia en confirmación — **no** viable FTGO [PRD NFR-01].
 
 ---
 
-### Opción 3: Híbrido REST síncrono + async (Kafka) ✓
+### Opción 3: Híbrido REST + Kafka ✓
 
 #### Descripción
 
-- **REST sync** para operaciones **request/response** con requisito NFR-01 y lecturas interactivas:
-  - Cliente → API Gateway → Order/Delivery (confirmar pedido, aceptar ticket, aceptar entrega, consultar tracking UC-05).
-  - Consultas de lectura (GET estado pedido, menú proxy durante Strangler).
-- **Kafka async** para **integración entre bounded contexts** y side-effects:
-  - `OrderCreated`, `PaymentCaptured`, `PaymentPending`, `TicketIssued`, `OrderReady`, `DeliveryAssigned`, `OrderDelivered`.
-  - Billing publica resultado de pago; Order consume; Notification consume múltiples tipos; Delivery consume `OrderReady`.
-- **Patrones:** Transactional Outbox + at-least-once + consumidores idempotentes [Richardson Cap 3]; Saga coreografiada para pago (NFR-05) [Richardson Cap 5].
+| Canal | Uso |
+|-------|-----|
+| **REST/HTTPS/JSON** | Cliente ↔ Gateway ↔ Order/Delivery; UC-01, 02, 03, 05 |
+| **Kafka** | Cross-BC: pago, dispatch, notificaciones |
+| **REST/SDK** | Stripe, Maps, SendGrid [STK-06] |
 
-#### Pros
+Patrones: **Transactional Outbox**, at-least-once, consumidores idempotentes, saga coreografiada pago [Richardson Cap 3, Cap 5].
 
-- Cumple **NFR-01** en write-path UX (respuesta HTTP tras commit local en Order).
-- Cumple **NFR-05** (Billing async hacia Order).
-- **NFR-07**: Order Service es sistema de registro del aggregate; eventos son derivados del commit local.
-- **NFR-08**: `correlation-id` en headers HTTP y headers Kafka.
-- **Strangler**: monolito publica/consume mismos topics durante F1–F2 [ADR-0001].
-- **C4**: Kafka explícito como `ContainerQueue` — coherencia diagrama contenedor.
+#### Evaluación dimensional
 
-#### Contras
-
-- **Dos modelos mentales** (REST + eventos) — curva de aprendizaje y errores de diseño.
-- Riesgo **dual-write** si no hay outbox — mitigación obligatoria.
-- Operación de Kafka + gateway + 6 servicios — costo medio-alto.
-- **Consistencia eventual** visible entre BC (ej. notificación milisegundos después de commit).
-- Ordenamiento por partición (`orderId` como key) debe diseñarse bien.
-
-#### Evaluación por dimensión
-
-| Dimensión | Valoración | Notas |
-|-----------|------------|-------|
-| **Latencia** | ✓✓ REST crítico; async fuera del path p95 |
-| **Resiliencia** | ✓✓ |
-| **Tolerancia a fallos** | ✓✓ NFR-05 |
-| **Consistency** | ✓ Order; ⚠ entre BC |
-| **Escalabilidad** | ✓✓ |
-| **Coupling** | ✓ contratos evento + OpenAPI acotados |
-| **Observabilidad** | ✓ con tracing unificado [NFR-08] |
+| Dimensión | Valoración |
+|-----------|------------|
+| Latencia | ✓✓ |
+| Resiliencia | ✓✓ |
+| Tolerancia fallos | ✓✓ |
+| Consistency | ✓ Order / ⚠ entre BC |
+| Escalabilidad | ✓✓ |
+| Coupling | ✓ |
+| Observabilidad | ✓ (HTTP + Kafka headers) |
 
 #### Impacto en NFRs
 
 | NFR | Impacto |
 |-----|---------|
 | NFR-01 | ✓ |
-| NFR-02 | ✓ (Kafka buffer) |
-| NFR-03 | ✓ (desacople) |
-| NFR-04 | ✓ (Delivery + cache) |
+| NFR-02 | ✓ |
+| NFR-03 | ✓ |
+| NFR-04 | ✓ |
 | NFR-05 | ✓✓ |
 | NFR-06 | ✓ |
-| NFR-07 | ✓ (Order dueño) |
-| NFR-08 | ✓ (propagación dual) |
-| NFR-09 | ✓ (monolito como producer/consumer) |
-| NFR-10 | ✓ (Billing aislado) |
+| NFR-07 | ✓ |
+| NFR-08 | ✓ |
+| NFR-09 | ✓✓ |
+| NFR-10 | ✓ |
 
-#### Strangler Fig
+#### Complejidad operativa / Migración
 
-| Fase | REST | Kafka |
-|------|------|-------|
-| F0 | Gateway → monolito | Opcional: outbox monolito → topics |
-| F1 | Gateway → Order/Delivery; monolito adaptador | Order/Delivery publican/consumen; monolito sincroniza estado |
-| F2 | + Billing, Notification APIs | Billing `Payment*` events; Notification suscriptor |
-| F3 | Mismo patrón | Monolito deja de producir/consumir |
+Media-alta; Strangler con **mismos topics** monolito y MS [ADR-0001 F0–F2].
 
 ---
 
-### Tabla comparativa consolidada
+### Tabla comparativa
 
-| Dimensión | REST solo | Kafka solo | Híbrido ✓ |
-|-----------|-----------|------------|-----------|
-| Latencia (NFR-01) | ⚠ | ✗ | ✓✓ |
+| Dimensión | REST | Kafka solo | Híbrido ✓ |
+|-----------|------|------------|-----------|
+| Latencia | ⚠ | ✗ | ✓✓ |
 | Resiliencia | ⚠ | ✓✓ | ✓✓ |
-| Tolerancia fallos (NFR-05) | ✗ | ✓✓ | ✓✓ |
-| Consistency (NFR-07) | ⚠ | ⚠ | ✓ |
-| Escalabilidad (NFR-06) | ⚠ | ✓✓ | ✓✓ |
+| Tolerancia fallos | ✗ | ✓✓ | ✓✓ |
+| Consistency | ⚠ | ⚠ | ✓ |
+| Escalabilidad | ⚠ | ✓✓ | ✓✓ |
 | Coupling | ✗ | ✓ | ✓ |
-| Observabilidad (NFR-08) | ✓ | ⚠ | ✓ |
-| Strangler (NFR-09) | ⚠ | ✓ | ✓✓ |
-| Complejidad operativa | Baja | Alta | Media-alta |
+| Observabilidad | ✓ | ⚠ | ✓ |
+| Strangler | ⚠ | ✓ | ✓✓ |
 
 ---
 
 ## 4. Decisión
 
-**Se adopta la Opción 3: Híbrido REST síncrono + event-driven Kafka** como mecanismo predominante de comunicación **entre** servicios (y entre servicios y monolito durante Strangler).
+**Opción 3 — Híbrido REST + Kafka.**
 
-### Reglas de uso (normativas)
+### Reglas normativas
 
-| Tipo | Mecanismo | Ejemplos FTGO |
-|------|-----------|---------------|
-| **Comando/consulta UX crítica** | REST sync HTTPS/JSON | UC-01 confirmar, UC-02 aceptar ticket, UC-03 aceptar entrega, UC-05 GET tracking |
-| **Integración cross-BC** | Kafka (domain events) | Billing → Order (pago), Order → Delivery (`OrderReady`), * → Notification |
-| **Integración externa** | REST/SDK del proveedor | Stripe, Google Maps, SendGrid/Twilio (STK-06) |
-| **Strangler monolito** | REST en fachada + Kafka outbox/inbox en monolito | F0–F2 [ADR-0001] |
+1. **Prohibido** REST síncrono MS↔MS salvo excepción documentada en anexo (ninguna en v1).
+2. **Writer único** por aggregate: solo Order Service (o monolito en ruta Strangler) publica `Order*` [evita duplicados Strangler].
+3. **Billing** (monolito F1 o MS F2) publica únicos `Payment*` en `ftgo.payment.events`.
+4. **correlation-id** en HTTP y headers Kafka [NFR-08].
 
-### Topología de eventos (v1 — C4)
+### Topología Kafka (C4)
 
-| Topic (ejemplo) | Productor | Consumidores | Eventos clave |
-|-----------------|-----------|--------------|---------------|
-| `ftgo.order.events` | Order Service, monolito (F1) | Delivery, Notification, Billing (lectura) | `OrderCreated`, `TicketIssued`, `OrderReady`, `OrderCancelled` |
-| `ftgo.payment.events` | Billing Service, monolito | Order, Notification | `PaymentCaptured`, `PaymentPending`, `PaymentFailed`, `PaymentRefunded` |
-| `ftgo.delivery.events` | Delivery Service | Order, Notification | `DeliveryAssigned`, `DeliveryCompleted` |
+| Topic | Productores | Consumidores |
+|-------|-------------|--------------|
+| `ftgo.order.events` | Order MS / monolito (ruta activa) | Delivery, Notification |
+| `ftgo.payment.events` | Billing monolito (F1), Billing MS (F2) | Order, Notification |
+| `ftgo.delivery.events` | Delivery MS | Order, Notification |
 
-**Particionado:** key = `orderId` para orden por pedido [NFR-07].
+**Key:** `orderId`. **Broker:** Apache Kafka — `ContainerQueue` en C4.
 
-### Trade-offs aceptados
+### Calendario alineado ADR-0001
 
-| Aceptamos | A cambio de |
-|-----------|-------------|
-| Operar Kafka + REST | NFR-05 y NFR-02 |
-| Eventualidad entre BC | NFR-01 en path síncrono local |
-| Outbox en cada writer | Evitar dual-write y cumplir NFR-07 |
-| Contratos de evento versionados (Schema Registry recomendado) | Evolución sin romper consumidores Strangler |
+| Fase | REST | Kafka |
+|------|------|-------|
+| F0 | Gateway → monolito | Cluster + outbox monolito piloto |
+| F1 | Gateway → Order/Delivery | MS + monolito consumen/producen según ruta |
+| F2 | + APIs Billing, etc. | Billing MS productor |
+| F3 | Sin monolito en topics | Solo MS |
 
-**Por qué no REST solo:** no cumple NFR-05 de forma limpia; acopla Billing a latencia de Order [FSD UC-04].
+### Trade-offs
 
-**Por qué no Kafka solo:** perjudica NFR-01 en confirmación de pedido al consumidor [PRD NFR-01].
+| Aceptamos | Por |
+|-----------|-----|
+| Ops Kafka + REST | NFR-05, NFR-02 |
+| Eventualidad notificaciones | NFR-01 en commit local |
+| Outbox obligatorio | NFR-07 |
 
-### Alineación C4 posterior (obligatoria)
+### Coherencia ADR-0001
 
-El diagrama `docs/diagrams/c4_container.mmd` **debe** incluir:
-
-- `ContainerQueue(kafka, "Event Broker", "Apache Kafka", "Eventos de dominio FTGO")`
-- Relaciones `Rel(..., kafka, "Publica/Consume <Evento>", "Kafka")` entre Order, Billing, Delivery, Notification y, en F1, Monolito Legacy adaptador.
+- F1 sin Billing MS **no bloquea** NFR-05: monolito + `payment.events`.
+- C4 **debe** dibujar Kafka y Rel `"Kafka"` hacia Order, Billing, Delivery, Notification, Monolito adaptador.
 
 ---
 
@@ -288,54 +225,45 @@ El diagrama `docs/diagrams/c4_container.mmd` **debe** incluir:
 
 ### Positivas
 
-- Modelo realista para marketplace: UX sync + back-office async [Richardson Cap 3].
-- **NFR-05** implementable con `PaymentPending` + reintentos sin rollback de Order [FSD UC-04].
-- **NFR-07** preservado con Order como dueño del aggregate.
-- Notification desacoplada (C-07) vía suscripción a topics.
-- Strangler: monolito sincroniza vía mismos eventos, reduciendo APIs duplicadas MS↔monolito.
-- Escalado independiente de consumidores Kafka en pico (NFR-02).
+- NFR-01 + NFR-05 simultáneos [FSD UC-01, UC-04 GWT].
+- Notification desacoplada (C-07).
+- Strangler sin duplicar APIs MS↔monolito para cada cambio de estado.
+- C4 coherente con decisión.
 
 ### Negativas (reales)
 
-1. **Complejidad operativa dual** (API Gateway + cluster Kafka + varios servicios) — mayor riesgo de incidentes por configuración de consumer groups.
-2. **Consistencia eventual visible**: el consumidor puede ver estado retrasado (ej. notificación push tras commit Order) — soporte debe conocer el modelo.
-3. **Mensajes duplicados** (at-least-once): bugs si consumidores no son idempotentes — riesgo directo a NFR-07.
-4. **Debugging distribuido** más costoso pese a NFR-08 — trazas deben unir HTTP span con Kafka produce/consume.
-5. **Evolución de esquemas**: cambio incompatible en evento rompe monolito Strangler y MS en paralelo — requiere gobernanza (FU-03).
-6. **Costo de infraestructura** Kafka 24×7 aun en F0 si se activa outbox temprano.
-7. **Riesgo de “eventos como API pública”** sin documentación — acoplamiento oculto entre equipos (anti-pattern [Richardson Cap 3]).
-8. **Latencia REST inter-servicios** si se abusa de sync MS↔MS (prohibido salvo excepciones documentadas) — deriva a anti-patrón orchestration.
-
-### Riesgos durante Strangler
-
-- Monolito y Order Service publican eventos duplicados si no hay **única fuente de verdad** por ruta — requiere regla: solo el writer del aggregate publica `Order*`.
+1. **Dos stacks** IPC — errores de modelo (publicar sin outbox).
+2. **Duplicados** at-least-once — bug en NFR-07 si no hay idempotencia.
+3. **Lag visible** notificaciones vs pantalla Order.
+4. **Debug** cross-protocol más caro.
+5. **Schema drift** rompe monolito y MS en paralelo.
+6. **Costo Kafka** desde F0 aunque productores MS sean F1.
+7. **Prohibición REST MS↔MS** requiere disciplina en code review.
+8. **Incidentes consumer lag** en pico 5× — riesgo NFR-02 si no se escala consumidores.
 
 ---
 
 ## 6. Follow-ups
 
-| ID | Acción | Fase | Artefacto |
-|----|--------|------|-----------|
-| FU-01 | Definir catálogo de eventos v1 y política de versionado | F0 | Anexo ADR / AsyncAPI |
-| FU-02 | Implementar transactional outbox en Order y Billing | F1 | Código + migración |
-| FU-03 | Desplegar Kafka (o managed MSK/Confluent) + ACLs por topic | F0 | Infra |
-| FU-04 | Propagar `correlation-id` HTTP → Kafka headers [NFR-08] | F0 | Estándar plataforma |
-| FU-05 | Consumidores idempotentes + tabla `processed_events` | F1 | Order, Delivery |
-| FU-06 | Actualizar **C4 Container** con `ContainerQueue` Kafka y Rel con protocolo | F0 | `c4_container.mmd` |
-| FU-07 | Pruebas de caos: Stripe down + verificar NFR-05 (UC-04 GWT) | F1 | Informe QA |
-| FU-08 | Anti-corruption layer monolito ↔ eventos Strangler | F1 | ADR-0001 FU-04 |
-| FU-09 | Prohibir nuevas cadenas REST sync MS↔MS en checklist de PR | F1 | Guía arquitectura |
+| ID | Acción | Fase |
+|----|--------|------|
+| FU-01 | Catálogo eventos v1 + AsyncAPI | F0 |
+| FU-02 | Outbox Order + monolito/Billing | F0 piloto / F1 |
+| FU-03 | Cluster Kafka + ACLs | F0 |
+| FU-04 | correlation-id HTTP→Kafka | F0 |
+| FU-05 | `processed_events` idempotencia | F1 |
+| FU-06 | **Actualizar `c4_container.mmd`** | F0 |
+| FU-07 | Caos Stripe [FSD UC-04] | F1 |
+| FU-08 | ACL monolito ↔ ADR-0001 FU-04 | F1 |
+| FU-09 | Checklist PR: no REST MS↔MS | F1 |
 
 ---
 
 ## Referencias
 
-- Chris Richardson, *Microservices Patterns*, Cap 3 — IPC, messaging, transactional outbox
-- Chris Richardson, *Microservices Patterns*, Cap 5 — Sagas (coreografía pago)
-- `docs/PRD.md` — NFR-01, NFR-05, NFR-07, NFR-08, ASM-03
-- `docs/FSD.md` — UC-01, UC-04, UC-05
-- `docs/adr/0001-descomposicion-microservicios.md` — Fases F0–F3
+- Richardson Cap 3, Cap 5
+- `docs/PRD.md`, `docs/FSD.md`, `docs/adr/0001-descomposicion-microservicios.md` v1.1
 
 ---
 
-*ADR-0002 Accepted — El diagrama C4 Container debe reflejar Kafka según sección 4.*
+*ADR-0002 v1.1 Accepted — Kafka obligatorio en C4 Container.*

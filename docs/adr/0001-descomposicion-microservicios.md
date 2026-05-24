@@ -3,10 +3,12 @@
 | Campo | Valor |
 |-------|-------|
 | **Status** | Accepted |
+| **Versión** | 1.1 |
 | **Fecha** | 2026-05-24 |
 | **Decisores** | Equipo de arquitectura (STK-05) |
 | **Trazabilidad** | [PRD NFR-09] [PRD NFR-06] [Brief §A.4] [Richardson Cap 2] [Richardson Cap 3] |
-| **Relacionado** | `docs/PRD.md` v1.1, `docs/FSD.md` v1.1, `docs/adr/0002-ipc-event-driven.md` |
+| **Relacionado** | `docs/PRD.md` v1.1, `docs/FSD.md` v1.1, **ADR-0002** [Accepted] |
+| **Cambios v1.1** | Matriz coherencia ADR-0002; F1 Billing+Kafka; NFR-05 desde F0; coste Kafka explícito |
 
 ---
 
@@ -15,242 +17,219 @@
 **ADR-0001 — Estrategia de descomposición del monolito FTGO mediante Strangler Fig e implementación híbrida incremental por capability de negocio.**
 
 - **Status:** Accepted
-- **Supersede:** N/A (primera decisión de descomposición)
+- **Supersede:** N/A
 
 ---
 
 ## 2. Contexto
 
-FTGO es un marketplace de delivery (monolito Java WAR) con siete **capacidades oficiales** (C-01…C-07) [PRD §3]. El negocio exige migración **incremental en 18–24 meses** sin big-bang [PRD NFR-09] [Brief §A.4], usando el patrón **Strangler Fig**: una fachada enruta tráfico al monolito legacy o a servicios nuevos [Richardson Cap 3].
+FTGO es un marketplace de delivery (monolito Java WAR) con **siete capacidades** C-01…C-07 [PRD §3]. Migración **18–24 meses**, **sin big-bang** [PRD NFR-09] [Brief §A.4], vía **Strangler Fig** [Richardson Cap 3].
 
-**Drivers de la decisión:**
+**Drivers:**
 
 | Driver | NFR / origen |
 |--------|----------------|
-| Escalar pedido y entrega en horas pico (5×) | NFR-02, NFR-06 [Brief §A.4] |
-| Disponibilidad camino crítico de pedidos | NFR-03 |
-| Reducir acoplamiento billing ↔ order | NFR-05, [US-01] |
-| Mantener consistencia del aggregate Order | NFR-07 |
-| Observabilidad en arquitectura distribuida | NFR-08 |
-| Cumplir ventana de migración con rollback | NFR-09 |
+| Pico 5× almuerzo/cena | NFR-02, NFR-06 |
+| Camino crítico pedidos | NFR-03 |
+| Desacoplar billing / Stripe | NFR-05, [US-01] |
+| Aggregate Order consistente | NFR-07 |
+| Observabilidad distribuida | NFR-08 |
+| Rollback por oleada | NFR-09 |
 
-**Restricciones:**
+**Restricciones:** Java/Spring Boot [PRD RES-01]; UCs UC-01…UC-05 [FSD]; IPC definida en **ADR-0002** (REST + Kafka).
 
-- No inventar capacidades fuera de C-01…C-07 [PRD §3].
-- Core en Java/Spring Boot [PRD RES-01].
-- Fases PRD: F0 fachada; F1 Order + Delivery; F2 Billing, Notification, Consumer, Restaurant [PRD §5.3].
-- UCs críticos: UC-01 (pedido), UC-03 (courier), UC-04 (pago) [FSD].
-
-**Problema a resolver:** ¿Cómo descomponer el monolito para maximizar NFRs sin violar migración incremental ni multiplicar riesgo operativo?
+**Problema:** ¿Cómo descomponer el monolito maximizando NFRs sin big-bang ni riesgo operativo descontrolado?
 
 ---
 
 ## 3. Opciones consideradas
 
-Se evalúan tres estrategias reales de descomposición. En todas se asume **Strangler Fig** como mecanismo de migración (no es opcional — [PRD NFR-09]).
+Strangler Fig es **común a las tres** opciones [PRD NFR-09]. La decisión es el **ritmo y la forma** de descomposición.
 
-### Dimensión de comparación (resumen)
+### Resumen comparativo
 
-| Dimensión | Opción 1 — MS por capability | Opción 2 — Modular monolith | Opción 3 — Híbrido incremental ✓ |
-|-----------|------------------------------|-----------------------------|----------------------------------|
-| Escalabilidad (NFR-06) | ✓✓ | ✗ | ✓✓ (fases) |
-| Complejidad operativa | Alta | Baja | Media creciente |
-| Latencia (NFR-01) | Riesgo red | ✓ | Controlada por fachada |
-| Resiliencia (NFR-03/05) | ✓ | ✗ acoplamiento | ✓ |
-| Coupling | Bajo entre BC | Bajo interno, alto despliegue único | Bajo progresivo |
-| Costo operativo | Alto | Bajo | Medio |
-| Migración (NFR-09) | Media (big-bang por servicio) | No alcanza objetivo MS | ✓✓ |
+| Dimensión | Op.1 MS paralelo | Op.2 Modular monolith | Op.3 Híbrido incremental ✓ |
+|-----------|------------------|----------------------|------------------------------|
+| Escalabilidad NFR-06 | ✓✓ | ✗ | ✓✓ (por fases) |
+| Complejidad operativa | Alta (temprana) | Baja | Media → alta |
+| Latencia NFR-01 | ⚠ | ✓ | ✓ (gateway) |
+| Resiliencia NFR-03/05 | ✓ | ✗ | ✓ |
+| Coupling | Bajo entre MS | Bajo código / alto deploy | Bajo progresivo |
+| Costo operativo | Alto | Bajo | Medio-alto (+ Kafka ADR-0002) |
+| Migración NFR-09 | ⚠ por servicio | ✗ objetivo final | ✓✓ |
 
 ---
 
-### Opción 1: Microservicios por capability de negocio
+### Opción 1: Microservicios por capability (extracción agresiva en paralelo)
 
 #### Descripción
 
-Extraer **un microservicio por cada capacidad oficial** (Consumer, Restaurant, Order, Delivery, Billing, Notification) en oleadas, cada uno con base de datos propia, detrás de API Gateway Strangler. Bounded context = capability [Richardson Cap 2 — decompose by business capability]. El monolito se apaga por rutas hasta desaparecer.
-
-Alineación FTGO: Order Service (C-03/C-04), Delivery Service (C-05), Billing Service (C-06), etc.
+Extraer **los seis servicios** en ventanas cortas superpuestas (Order, Delivery, Billing, Notification, Consumer, Restaurant), cada uno con DB propia, detrás de Strangler [Richardson Cap 2]. Diferencia con Op.3: **poca convivencia** monolito–MS por dominio; presión por “terminar” extracciones.
 
 #### Pros
 
-- Escalado independiente por servicio (NFR-06) [Richardson Cap 2].
-- Aislamiento de fallos y despliegues por contexto.
-- Equipos pueden alinearse a capabilities ( Conway-friendly ).
-- Cumple visión objetivo del PRD (microservicios Java/Spring).
+- NFR-06 rápido en toda la plataforma.
+- Aislamiento PCI en Billing temprano (NFR-10).
+- Equipos por capability.
 
 #### Contras
 
-- **Alta complejidad operativa** desde oleadas tempranas: K8s, múltiples DBs, secretos, pipelines × 6.
-- Riesgo de **“microservicios prematuros”** si se extrae Notification antes que Order [Richardson Cap 2 — anti-pattern].
-- Latencia adicional en cadenas sync multi-hop (NFR-01).
-- Datos distribuidos: riesgo a NFR-07 si no hay diseño de sagas (depende ADR-0002).
-- Costo de infra y observabilidad multiplicado.
+- Complejidad operativa **máxima** en meses 4–12 (6 pipelines, 6 DBs, Kafka ADR-0002).
+- Riesgo **big-bang por dominio** y rollback difícil [NFR-09].
+- NFR-07 frágil sin outbox maduro (depende ADR-0002 FU-02).
+- “Microservice envy” [Richardson Cap 2].
 
 #### Impacto en NFRs
 
 | NFR | Impacto |
 |-----|---------|
-| NFR-01 Latencia | ⚠ — más saltos de red |
-| NFR-02 Carga | ✓ — escala Order/Delivery |
-| NFR-03 Disponibilidad | ✓ — si circuit breakers |
-| NFR-04 Tracking | ✓ — Delivery aislado |
-| NFR-05 Stripe | ✓ — Billing aislado |
-| NFR-06 Escalabilidad | ✓✓ |
-| NFR-07 Consistencia | ⚠ — Order distribuido |
-| NFR-08 Trazabilidad | ✓ — obligatorio |
-| NFR-09 Migración | ⚠ — riesgo big-bang *por servicio* si oleadas mal planificadas |
-| NFR-10 Compliance | ✓ — PCI en Billing |
+| NFR-01 | ⚠ |
+| NFR-02 | ✓ |
+| NFR-03 | ⚠ |
+| NFR-05 | ✓ (si Billing temprano) |
+| NFR-06 | ✓✓ |
+| NFR-07 | ⚠ |
+| NFR-08 | ⚠ (madurez) |
+| NFR-09 | ⚠ |
+| NFR-10 | ✓ |
 
 #### Complejidad operativa
 
-**Alta** desde F1: 2+ servicios + gateway + tracing + CI/CD paralelos.
+**Alta** desde mes 4.
 
 #### Impacto en migración
 
-Strangler aplicable, pero la tentación es **extraer demasiados servicios en paralelo** y perder rollback simple. Ventana 18–24 meses viable solo con disciplina estricta de oleadas.
+Strangler formal, pero **alta probabilidad de corte coordinado** multi-equipo; poco realista para FTGO 18–24 meses sin incidentes mayores.
 
 ---
 
-### Opción 2: Modular monolith temporal (sin extracción a microservicios en el horizonte)
+### Opción 2: Modular monolith temporal
 
 #### Descripción
 
-Reestructurar el WAR monolito en **módulos Gradle/Maven** por capability (paquetes, límites de API interna, base de datos lógica separada por schema), **sin** procesos desplegables separados durante 18–24 meses. Strangler solo como refactor interno o no aplicado hacia servicios externos.
+Módulos Maven/Gradle por capability **sin** procesos separados en 18–24 meses. Strangler no expone microservicios nuevos.
 
 #### Pros
 
-- **Menor complejidad operativa**: un despliegue, una DB física (o schemas), herramientas actuales.
-- Mejor latencia local (NFR-01) — llamadas in-process.
-- Refactor incremental de código con menor riesgo de red.
-- Consistencia Order más simple (NFR-07) en una transacción.
-- Costo operativo bajo.
+- NFR-01, NFR-07 simples.
+- Ops mínima.
 
 #### Contras
 
-- **No cumple NFR-06** (escalado independiente por componente) [PRD NFR-06].
-- Sigue un **punto único de fallo** de despliegue; builds lentos persisten [Brief §A.1].
-- No aísla Billing/Stripe del resto (NFR-05 más difícil).
-- Al final del horizonte habría que **re-hacer extracción física** — doble trabajo.
-- Strangler hacia “nada nuevo” no reduce lock-in tecnológico [Brief §A.1].
-- Equipos siguen pisándose en un repo.
+- **Incumple NFR-06** y objetivo PRD de microservicios.
+- NFR-05 acoplado en un WAR.
+- Doble migración futura.
+- NFR-09 no alcanza arquitectura objetivo.
 
 #### Impacto en NFRs
 
 | NFR | Impacto |
 |-----|---------|
-| NFR-01 Latencia | ✓ |
-| NFR-02 Carga | ✗ — escala todo el monolito |
-| NFR-03 Disponibilidad | ⚠ — blast radius |
-| NFR-04 Tracking | ⚠ |
-| NFR-05 Stripe | ✗ — acoplamiento |
-| NFR-06 Escalabilidad | ✗ |
-| NFR-07 Consistencia | ✓ |
-| NFR-08 Trazabilidad | ✓ — más simple |
-| NFR-09 Migración | ✗ — no alcanza arquitectura objetivo |
-| NFR-10 Compliance | ⚠ — scope PCI más amplio |
+| NFR-01 | ✓ |
+| NFR-02 | ✗ |
+| NFR-05 | ✗ |
+| NFR-06 | ✗ |
+| NFR-07 | ✓ |
+| NFR-09 | ✗ |
 
 #### Complejidad operativa
 
-**Baja** — favorable solo a corto plazo.
+**Baja**.
 
 #### Impacto en migración
 
-**No satisface** el objetivo de migración del laboratorio/PRD hacia microservicios. Puede ser etapa **subordinada** (módulos dentro del monolito), no estrategia final.
+Válido solo como **táctica interna** dentro del monolito previa a Op.3; **no** decisión final.
 
 ---
 
-### Opción 3: Híbrido incremental (Strangler + microservicios por capability en oleadas)
+### Opción 3: Híbrido incremental (Strangler + MS por capability en oleadas) ✓
 
 #### Descripción
 
-Combinar **Strangler Fig** [Richardson Cap 3] con extracción **progresiva por capability**, priorizando camino crítico y NFRs:
+Strangler + extracción **secuencial por valor y NFR**:
 
-| Fase | Extracción | Monolito |
-|------|------------|----------|
-| F0 | API Gateway, flags, tracing (NFR-08) | 100% tráfico no piloto |
-| F1 | **Order Service** (C-03, C-04 estado), **Delivery Service** (C-05) | Billing, Consumer, Restaurant, Notification |
-| F2 | **Billing**, **Notification**, **Consumer**, **Restaurant** | Rutas residuales |
-| F3 | Apagado monolito | 0% tráfico producción |
+| Fase | Despliegue | Monolito | IPC [ADR-0002] |
+|------|------------|----------|----------------|
+| **F0** | Gateway, tracing, **Kafka infra** | 100% tráfico app | REST gateway→monolito; outbox monolito→Kafka (piloto) |
+| **F1** | Order + Delivery MS | Billing, C-01/02/07 | REST UX; eventos dominio; **billing lógica en monolito** publica `payment.events` [PRD ASM-02] |
+| **F2** | Billing, Notification, Consumer, Restaurant | Rutas residuales | Billing MS productor PSP |
+| **F3** | Apagado monolito | 0% | Solo MS |
 
-Opcional en F0–F1: **módulos internos** en monolito (preparación Opción 2) sin despliegue separado — puente de código, no estrategia final.
-
-Cada ruta migrada: feature flag + rollback de enrutamiento [PRD NFR-09]. Comunicación entre servicios según ADR-0002.
+Módulos internos monolito (Op.2) permitidos en F0–F1 como puente de código.
 
 #### Pros
 
-- Cumple **NFR-09** con rollback por ruta [Richardson Cap 3].
-- Alcanza **NFR-06** en F1 para Order/Delivery (pico 5×).
-- Reduce riesgo vs “big-bang microservicios”: validación por oleada.
-- Alineado a **FSD** (UC-01/03/04 en F1–F2) y fases PRD.
-- Permite convivencia: billing en monolito con NFR-05 lógico [PRD ASM-02].
-- Modularización interna opcional reduce deuda antes de cortar.
+- NFR-09 con rollback por ruta.
+- NFR-06 en F1 (Order, Delivery) para pico.
+- NFR-05 desde F0 vía eventos aunque Billing sea monolito [PRD ASM-02] + ADR-0002.
+- Alineado FSD (UC-01 F1, UC-04 monolito→evento, UC-05 F1).
 
 #### Contras
 
-- **Período prolongado de arquitectura dual** (monolito + MS): mayor carga cognitiva y bugs de enrutamiento.
-- Complejidad operativa **media → alta** a medida que crecen servicios.
-- Riesgo de **inconsistencia de datos** entre monolito y Order DB si no hay anti-corruption layer [Richardson Cap 3].
-- Latencia variable durante F1 (algunas rutas más lentas).
-- Costo de gateway, doble mantenimiento temporal de código.
+- Arquitectura dual 12–18 meses.
+- Ops media-alta + **Kafka** (coste ADR-0002).
+- Riesgo datos divergentes monolito ↔ Order DB.
+- F2 con 4 extracciones — cuello de botella de entrega.
 
 #### Impacto en NFRs
 
 | NFR | Impacto |
 |-----|---------|
-| NFR-01 Latencia | ✓ — fachada optimizada; ⚠ en rutas híbridas |
-| NFR-02 Carga | ✓ — F1 Order+Delivery |
-| NFR-03 Disponibilidad | ✓ — rollback |
-| NFR-04 Tracking | ✓ — Delivery F1 |
-| NFR-05 Stripe | ✓ — Billing F2; lógica resiliente antes |
-| NFR-06 Escalabilidad | ✓✓ — progresivo |
-| NFR-07 Consistencia | ✓ — Order Service dueño aggregate |
-| NFR-08 Trazabilidad | ✓ — F0 obligatorio |
-| NFR-09 Migración | ✓✓ |
-| NFR-10 Compliance | ✓ — Billing F2 |
+| NFR-01 | ✓ |
+| NFR-02 | ✓ (F1) |
+| NFR-03 | ✓ |
+| NFR-04 | ✓ (Delivery F1) |
+| NFR-05 | ✓ (eventos F0+; Billing MS F2) |
+| NFR-06 | ✓✓ |
+| NFR-07 | ✓ (Order dueño F1) |
+| NFR-08 | ✓ (F0) |
+| NFR-09 | ✓✓ |
+| NFR-10 | ✓ (F2 Billing) |
 
 #### Complejidad operativa
 
-**Media** en F0–F1 (2 servicios + gateway); **alta** en F2 (6 servicios). Plan de SRE y observabilidad desde F0.
+Media F0–F1; **alta** F2–F3.
 
 #### Impacto en migración
 
-**Óptimo** para ventana 18–24 meses: valor de negocio temprano (pedido + entrega) sin extraer Consumer/Restaurant antes de tiempo [Richardson Cap 2 — evolve].
+**Recomendada** para FTGO: valida Strangler y NFRs antes de multiplicar servicios [Richardson Cap 3 — evolve].
 
 ---
 
 ## 4. Decisión
 
-**Se adopta la Opción 3: Híbrido incremental** — Strangler Fig + extracción de microservicios **por capability de negocio** en oleadas alineadas al PRD (F0→F3), usando módulos internos en monolito solo como **táctica preparatoria**, no como estado final.
+**Opción 3 — Híbrido incremental** con Strangler, oleadas F0–F3, e **IPC híbrida REST+Kafka** según ADR-0002 [Accepted].
 
-### Justificación de trade-offs
+### Trade-offs aceptados
 
-| Trade-off | Elección | Por qué |
-|-----------|----------|---------|
-| Velocidad operativa vs escalabilidad | Escalabilidad progresiva | NFR-02 y NFR-06 son drivers del caso [Brief §A.4]; modular monolith solo no cierra el PRD |
-| Simplicidad vs time-to-value | Oleadas F1 Order+Delivery | Máximo impacto en UC-01, UC-03, UC-05 y horas pico [FSD] |
-| Consistencia vs autonomía | Order Service dueño del aggregate | NFR-07; integraciones vía ADR-0002 |
-| Costo operativo vs riesgo big-bang | Híbrido con rollback | NFR-09 [Richardson Cap 3] |
+| Aceptamos | Rechazamos | Por qué |
+|-----------|------------|---------|
+| Deuda dual monolito+MS | Big-bang por dominio | NFR-09 |
+| Kafka desde F0 (infra) | REST-only inter-BC | NFR-05, ADR-0002 |
+| Billing físico en F2 | Extraer Consumer antes que Order | NFR-02, UC-01 |
+| 6 servicios al final | Modular monolith final | NFR-06, PRD |
 
-**Por qué no Opción 1 pura:** extraer las 6 capabilities en paralelo eleva complejidad operativa antes de validar Strangler y NFRs en producción — anti-patrón “microservice envy” [Richardson Cap 2].
+### Mapa capability → servicio
 
-**Por qué no Opción 2 pura:** incumple NFR-06 y objetivos de migración del PRD; deja doble migración futura.
-
-### Mapa capability → servicio (objetivo)
-
-| Capability | Servicio | Fase extracción |
-|------------|----------|-----------------|
-| C-03, C-04 (estado Order) | Order Service | F1 |
+| Capability | Servicio | Fase |
+|------------|----------|------|
+| C-03, C-04 | Order Service | F1 |
 | C-05 | Delivery Service | F1 |
 | C-06 | Billing Service | F2 |
 | C-07 | Notification Service | F2 |
 | C-01 | Consumer Service | F2 |
 | C-02 | Restaurant Service | F2 |
 
-### Componentes Strangler (F0)
+### Coherencia con ADR-0002
 
-- API Gateway / reverse proxy con enrutamiento por path y feature flags.
-- Monolito Legacy como System downstream hasta F3.
-- Correlation ID obligatorio en gateway [PRD NFR-08].
+| ADR-0001 | ADR-0002 |
+|----------|----------|
+| F0 gateway | REST cliente→monolito |
+| F0 Kafka cluster | Outbox monolito, sin consumidores MS aún |
+| F1 Order/Delivery MS | REST write-path UX; Kafka cross-BC |
+| F1 Billing en monolito | Publica `ftgo.payment.events` |
+| F2 Billing MS | Productor PSP + mismos topics |
+| C4 Container | `ContainerQueue` Kafka obligatorio |
 
 ---
 
@@ -258,53 +237,45 @@ Cada ruta migrada: feature flag + rollback de enrutamiento [PRD NFR-09]. Comunic
 
 ### Positivas
 
-- Cumplimiento de **NFR-09** con migración reversible por ruta.
-- **NFR-06** satisfecho para componentes críticos desde F1.
-- Alineación con **Richardson** (decompose by capability + Strangler) [Cap 2, Cap 3].
-- Trazabilidad clara PRD → FSD → servicios para C4.
-- Equipos pueden entregar valor en mes 4–9 (F1) sin esperar F3.
+- NFR-09 cumplible con flags y rollback.
+- Valor F1 en pedido/entrega/tracking [FSD UC-01, UC-03, UC-05].
+- Richardson Cap 2 + Cap 3 alineados.
+- Base C4: Monolito Legacy + servicios por fase.
 
 ### Negativas (reales)
 
-1. **Deuda de arquitectura dual** durante 12–18 meses: dos modelos de datos y código para las mismas rutas; riesgo de regresiones en enrutamiento.
-2. **Costo operativo superior** al monolito: múltiples pipelines, alertas, on-call por servicio; presión en STK-05 sin madurez DevOps.
-3. **Latencia inconsistente** entre rutas monolito vs microservicio hasta completar F3 (NFR-01 en riesgo si gateway mal dimensionado).
-4. **Complejidad de pruebas E2E** multiplicada: matriz monolito × MS × flags.
-5. **Riesgo de datos divergentes** entre monolito y Order Service si la sincronización Strangler falla (impacto NFR-07).
-6. **Curva de aprendizaje** del equipo en distributed systems antes de que todo el valor esté extraído.
-7. **F2 concentrado**: cuatro servicios en una fase — posible cuello de botella de entrega si no se planifica capacidad.
-
-### Riesgos mitigados (acciones en follow-ups)
-
-- Anti-Corruption Layer en gateway hacia monolito.
-- Contract tests entre F1 y monolito.
-- Runbooks de rollback de flags [NFR-09].
+1. **Deuda dual** monolito + MS + topics Kafka — tres superficies de fallo.
+2. **Costo ops** superior (gateway, 2→6 servicios, broker 24×7).
+3. **NFR-01 inconsistente** entre rutas hasta F3.
+4. **E2E** matriz monolito × MS × flags × eventos.
+5. **Divergencia de datos** monolito vs Order DB (NFR-07).
+6. **F2 sobrecargado** — riesgo de retraso Billing/Notification.
+7. **Dependencia de ADR-0002**: sin outbox, la descomposición F1 falla en producción.
+8. **Equipo pequeño**: riesgo de subestimar on-call Kafka + K8s.
 
 ---
 
 ## 6. Follow-ups
 
-| ID | Acción | Responsable | Plazo | Artefacto |
-|----|--------|-------------|-------|-----------|
-| FU-01 | Definir matriz de rutas Strangler (path → monolito \| MS) y criterios de rollback | Arquitectura | F0 | ADR anexo / C4 |
-| FU-02 | Aprobar ADR-0002 (sync vs eventos, NFR-05/07) antes de F1 | Arquitectura | F0 | `0002-ipc-event-driven.md` |
-| FU-03 | Implementar correlation ID + tracing en gateway (NFR-08) | Plataforma | F0 | Observabilidad |
-| FU-04 | Extraer Order Service con DB propia y anti-corruption hacia monolito | Order team | F1 | C4 Container |
-| FU-05 | Extraer Delivery Service; validar NFR-02 con prueba de carga 5× | Delivery team | F1 | Informe perf |
-| FU-06 | Definir SLA de deuda dual (fecha máxima rutas híbridas por dominio) | Arquitectura | F1 | Roadmap |
-| FU-07 | Extraer Billing; acotar PCI (NFR-10) | Billing team | F2 | ADR/compliance checklist |
-| FU-08 | Apagar última ruta monolito; revisión post-mortem NFR-09 | Arquitectura | F3 | Acta cierre |
+| ID | Acción | Plazo | Artefacto |
+|----|--------|-------|-----------|
+| FU-01 | Matriz rutas Strangler + rollback | F0 | C4 / runbook |
+| FU-02 | Ejecutar criterios ADR-0002 (outbox F0 piloto, Kafka F0) | F0 | `0002-ipc-event-driven.md` |
+| FU-03 | correlation-id en gateway [NFR-08] | F0 | Estándar |
+| FU-04 | Order Service + ACL monolito | F1 | C4 |
+| FU-05 | Delivery + prueba carga 5× [NFR-02] | F1 | Informe |
+| FU-06 | SLA máximo deuda dual por dominio | F1 | Roadmap |
+| FU-07 | Billing MS + PCI [NFR-10] | F2 | Checklist |
+| FU-08 | Apagado monolito [NFR-09] | F3 | Acta |
 
 ---
 
 ## Referencias
 
-- Chris Richardson, *Microservices Patterns*, Cap 2 — Decomposition strategies
-- Chris Richardson, *Microservices Patterns*, Cap 3 — Interprocess communication & API Gateway / Strangler
-- `docs/PRD.md` — NFR-01…NFR-10, fases F0–F3
-- `docs/FSD.md` — UC-01…UC-05
-- [Brief §A.4] — Strangler, escalabilidad, migración 18–24 meses
+- Richardson, *Microservices Patterns*, Cap 2, Cap 3
+- `docs/PRD.md`, `docs/FSD.md`, `docs/adr/0002-ipc-event-driven.md`
+- [Brief §A.4]
 
 ---
 
-*ADR-0001 Accepted — Base para diagramas C4 (Monolito Legacy + servicios por fase).*
+*ADR-0001 v1.1 Accepted — Par con ADR-0002 para C4 Container.*
