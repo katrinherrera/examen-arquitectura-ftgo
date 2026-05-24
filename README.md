@@ -11,7 +11,7 @@ examen-arquitectura-ftgo/
 │   ├── PRD.md
 │   ├── FSD.md
 │   ├── adr/
-│   │   ├── 0001-strangler-fig-migration-strategy.md
+│   │   ├── 0001-descomposicion-microservicios.md
 │   │   └── 0002-event-driven-order-communication.md
 │   └── diagrams/
 │       ├── c4_context.mmd

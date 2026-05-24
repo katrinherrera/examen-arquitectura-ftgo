@@ -394,7 +394,7 @@ UC-01 ──► UC-04
 | FSD | Artefacto |
 |-----|-----------|
 | UC-01, UC-02, UC-04 | `docs/adr/0002-event-driven-order-communication.md` |
-| Todos | `docs/adr/0001-strangler-fig-migration-strategy.md` |
+| Todos | `docs/adr/0001-descomposicion-microservicios.md` |
 | Todos | `docs/diagrams/c4_*.mmd` |
 
 ---
