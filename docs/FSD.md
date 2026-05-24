@@ -393,7 +393,7 @@ UC-01 ──► UC-04
 
 | FSD | Artefacto |
 |-----|-----------|
-| UC-01, UC-02, UC-04 | `docs/adr/0002-event-driven-order-communication.md` |
+| UC-01, UC-02, UC-04 | `docs/adr/0002-ipc-event-driven.md` |
 | Todos | `docs/adr/0001-descomposicion-microservicios.md` |
 | Todos | `docs/diagrams/c4_*.mmd` |
 

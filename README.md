@@ -12,7 +12,7 @@ examen-arquitectura-ftgo/
 │   ├── FSD.md
 │   ├── adr/
 │   │   ├── 0001-descomposicion-microservicios.md
-│   │   └── 0002-event-driven-order-communication.md
+│   │   └── 0002-ipc-event-driven.md
 │   └── diagrams/
 │       ├── c4_context.mmd
 │       └── c4_container.mmd

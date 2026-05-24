@@ -6,7 +6,7 @@
 | **Fecha** | 2026-05-24 |
 | **Decisores** | Equipo de arquitectura (STK-05) |
 | **Trazabilidad** | [PRD NFR-09] [PRD NFR-06] [Brief §A.4] [Richardson Cap 2] [Richardson Cap 3] |
-| **Relacionado** | `docs/PRD.md` v1.1, `docs/FSD.md` v1.1, ADR-0002 (comunicación) |
+| **Relacionado** | `docs/PRD.md` v1.1, `docs/FSD.md` v1.1, `docs/adr/0002-ipc-event-driven.md` |
 
 ---
 
@@ -287,7 +287,7 @@ Cada ruta migrada: feature flag + rollback de enrutamiento [PRD NFR-09]. Comunic
 | ID | Acción | Responsable | Plazo | Artefacto |
 |----|--------|-------------|-------|-----------|
 | FU-01 | Definir matriz de rutas Strangler (path → monolito \| MS) y criterios de rollback | Arquitectura | F0 | ADR anexo / C4 |
-| FU-02 | Aprobar ADR-0002 (sync vs eventos, NFR-05/07) antes de F1 | Arquitectura | F0 | `0002-event-driven-order-communication.md` |
+| FU-02 | Aprobar ADR-0002 (sync vs eventos, NFR-05/07) antes de F1 | Arquitectura | F0 | `0002-ipc-event-driven.md` |
 | FU-03 | Implementar correlation ID + tracing en gateway (NFR-08) | Plataforma | F0 | Observabilidad |
 | FU-04 | Extraer Order Service con DB propia y anti-corruption hacia monolito | Order team | F1 | C4 Container |
 | FU-05 | Extraer Delivery Service; validar NFR-02 con prueba de carga 5× | Delivery team | F1 | Informe perf |

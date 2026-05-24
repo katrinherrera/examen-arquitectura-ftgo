@@ -328,4 +328,4 @@ Formato obligatorio por NFR. Solo métricas del **brief** o derivadas explícita
 
 ---
 
-*Versión 1.1 — Trazabilidad: `docs/FSD.md` ← RF/NFR; `docs/adr/0001-*.md` ← NFR-09; `docs/adr/0002-*.md` ← NFR-05, NFR-07, NFR-08.*
+*Versión 1.1 — Trazabilidad: `docs/FSD.md` ← RF/NFR; `docs/adr/0001-descomposicion-microservicios.md` ← NFR-09; `docs/adr/0002-ipc-event-driven.md` ← NFR-05, NFR-07, NFR-08.*
