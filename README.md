@@ -32,14 +32,16 @@ Este repositorio documenta la **arquitectura objetivo** de FTGO durante su trans
 examen-arquitectura-ftgo/
 ├── README.md                          # Este archivo
 ├── docs/
-│   ├── PRD.md                         # Product Requirements Document v1.1
+│   ├── PRD.md                         # Product Requirements Document v1.2
 │   ├── FSD.md                         # Functional Specification v1.1
 │   ├── adr/
 │   │   ├── 0001-descomposicion-microservicios.md   # ADR-0001 v1.1 [Accepted]
 │   │   └── 0002-ipc-event-driven.md                # ADR-0002 v1.1 [Accepted]
 │   └── diagrams/
-│       ├── c4_context.mmd             # C4 Context [v1.1]
-│       └── c4_container.mmd           # C4 Container [v1.1]
+│       ├── c4_context.mmd / .png      # C4 Context [v1.1]
+│       └── c4_container.mmd / .png    # C4 Container [v1.1]
+├── evidencia/
+│   └── metricas-prompts.md            # Reproducibilidad: 3 corridas × score checklist
 └── prompts_mejorados/
     ├── prd_mejorado.md                 # Prompt PRD v2.0
     ├── fsd_mejorado.md                 # Prompt FSD v2.0
@@ -56,12 +58,13 @@ examen-arquitectura-ftgo/
 
 | Artefacto | Ruta | Versión | Contenido principal |
 |-----------|------|---------|---------------------|
-| **PRD** | `docs/PRD.md` | 1.1 | Contexto, 6 STK, 7 capacidades C-01…C-07, NFR-01…10, alcance In/Out, fases F0–F3 |
+| **PRD** | `docs/PRD.md` | 1.2 | Contexto, 6 STK, 7 capacidades C-01…C-07, NFR-01…10, C-04 Kitchen+Order, fases F0–F3 |
 | **FSD** | `docs/FSD.md` | 1.1 | 5 UCs (pedido, ticket, courier, pago, tracking), GWT, trazabilidad US/PRD |
 | **ADR-0001** | `docs/adr/0001-descomposicion-microservicios.md` | 1.1 | Híbrido incremental + Strangler; 3 opciones; fases extracción |
 | **ADR-0002** | `docs/adr/0002-ipc-event-driven.md` | 1.1 | Híbrido REST + Kafka; topics; reglas C4 |
-| **C4 Context** | `docs/diagrams/c4_context.mmd` | 1.1 | Actores, FTGO Platform, externos + Monolito Legacy |
-| **C4 Container** | `docs/diagrams/c4_container.mmd` | 1.1 | 7 servicios + Gateway + Kafka + DB-per-service + apps |
+| **C4 Context** | `docs/diagrams/c4_context.mmd` + `.png` | 1.1 | Actores, FTGO Platform, externos + Monolito Legacy |
+| **C4 Container** | `docs/diagrams/c4_container.mmd` + `.png` | 1.1 | 7 servicios + Gateway + Kafka + DB-per-service + apps |
+| **Métricas prompts** | `evidencia/metricas-prompts.md` | — | Fecha, modelo, score checklist por corrida (PRD/FSD/ADR) |
 | **Prompt PRD** | `prompts_mejorados/prd_mejorado.md` | 2.0 | Anti-patterns, verificación, métricas, 3 corridas |
 | **Prompt FSD** | `prompts_mejorados/fsd_mejorado.md` | 2.0 | 5 UCs, GWT, granularidad, métricas, 3 corridas |
 | **Prompt ADR** | `prompts_mejorados/adr_mejorado.md` | 2.0 | Trade-offs, 8 dimensiones, validaciones, 3 corridas |
@@ -123,7 +126,7 @@ npx -y @mermaid-js/mermaid-cli@11.4.0 -i docs/diagrams/c4_context.mmd -o docs/di
 npx -y @mermaid-js/mermaid-cli@11.4.0 -i docs/diagrams/c4_container.mmd -o docs/diagrams/c4_container.png
 ```
 
-Salida esperada: exit code `0` en ambos comandos (sintaxis C4 válida).
+Salida esperada: exit code `0` en ambos comandos (sintaxis C4 válida). Versionar `c4_context.png` y `c4_container.png` en el repositorio tras exportar.
 
 ### 4.6 Validación rápida (bash)
 

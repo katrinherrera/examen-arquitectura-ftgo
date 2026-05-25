@@ -3,10 +3,11 @@
 | Campo | Valor |
 |-------|-------|
 | **Producto** | FTGO (Food To Go) |
-| **Versión** | 1.1 |
+| **Versión** | 1.2 |
 | **Estado** | Aprobado para diseño |
 | **Horizonte** | Migración incremental 18–24 meses |
 | **Origen** | [Brief §A.1–A.4], caso FTGO oficial |
+| **Cambios v1.2** | C-04: Kitchen Service + Order Service (aggregate); alineación FSD/C4 |
 | **Cambios v1.1** | Supuestos de convivencia; NFRs sin prescripción tecnológica prematura; matriz STK×C; alineación fases Strangler |
 
 ---
@@ -145,8 +146,8 @@ Lista cerrada: **seis stakeholders oficiales**. No se agregan actores adicionale
 | **Descripción** | Tickets cocina, estados de preparación, aceptación/rechazo |
 | **Actores** | STK-02 |
 | **RF / US** | [US-02] |
-| **Servicio objetivo** | Order Service (estado); eventos hacia Restaurant (Fase 2+) |
-| **Migración** | Fase 1 (estado en Order); UI kitchen puede rutear a monolito hasta Fase 2 |
+| **Servicio objetivo** | **Kitchen Service** (API tickets cocina) + **Order Service** (aggregate Order, dueño de estado) [FSD UC-02] [ADR-0002 `kitchen.commands`] |
+| **Migración** | Fase 1: Order Service + Kitchen Service; Restaurant Service Fase 2 [ADR-0001] |
 
 ### C-05: Delivery
 
