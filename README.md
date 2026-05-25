@@ -42,9 +42,12 @@ examen-arquitectura-ftgo/
 │       └── c4_container.mmd           # C4 Container [v1.1]
 └── prompts_mejorados/
     ├── prd_mejorado.md                 # Prompt PRD v2.0
-    ├── adr_mejorado.md                # Prompt ADR v2.0
-    ├── 01-generar-prd.md              # Semilla histórica v0.1
-    └── 02-generar-fsd.md              # Semilla histórica v0.1
+    ├── fsd_mejorado.md                 # Prompt FSD v2.0
+    ├── adr_mejorado.md                 # Prompt ADR v2.0
+    └── _legacy/                        # Semillas v0.1 (no usar en entrega)
+        ├── README.md
+        ├── 01-generar-prd.md
+        └── 02-generar-fsd.md
 ```
 
 ---
@@ -60,6 +63,7 @@ examen-arquitectura-ftgo/
 | **C4 Context** | `docs/diagrams/c4_context.mmd` | 1.1 | Actores, FTGO Platform, externos + Monolito Legacy |
 | **C4 Container** | `docs/diagrams/c4_container.mmd` | 1.1 | 7 servicios + Gateway + Kafka + DB-per-service + apps |
 | **Prompt PRD** | `prompts_mejorados/prd_mejorado.md` | 2.0 | Anti-patterns, verificación, métricas, 3 corridas |
+| **Prompt FSD** | `prompts_mejorados/fsd_mejorado.md` | 2.0 | 5 UCs, GWT, granularidad, métricas, 3 corridas |
 | **Prompt ADR** | `prompts_mejorados/adr_mejorado.md` | 2.0 | Trade-offs, 8 dimensiones, validaciones, 3 corridas |
 
 ---
@@ -70,11 +74,15 @@ Ejecutar desde la raíz del repositorio.
 
 ### 4.1 Generación con agente IA (Cursor / CLI)
 
-1. Abrir `prompts_mejorados/prd_mejorado.md` → copiar sección **PROMPT EJECUTABLE** → generar `docs/PRD.md`.
-2. Abrir `prompts_mejorados/adr_mejorado.md` → invocar con `ADR-0001` luego `ADR-0002` (tras PRD y FSD).
-3. Para FSD: usar `docs/FSD.md` existente o ampliar con semilla `02-generar-fsd.md` (pendiente `fsd_mejorado.md`).
+1. `prompts_mejorados/prd_mejorado.md` → **PROMPT EJECUTABLE** → `docs/PRD.md`.
+2. `prompts_mejorados/fsd_mejorado.md` → **PROMPT EJECUTABLE** → `docs/FSD.md` (requiere PRD).
+3. `prompts_mejorados/adr_mejorado.md` → `ADR-0001` luego `ADR-0002` (requiere PRD + FSD).
 
-**Ejemplo de invocación:**
+**Ejemplos de invocación:**
+
+```text
+Usa prompts_mejorados/fsd_mejorado.md. Genera docs/FSD.md. Upstream: docs/PRD.md v1.1.
+```
 
 ```text
 Usa prompts_mejorados/adr_mejorado.md. Genera ADR-0002. Status: Accepted.
@@ -93,8 +101,11 @@ Select-String -Path docs/PRD.md -Pattern "Regulador|Inversor|Loyalty|Groceries" 
 
 ```powershell
 (Select-String -Path docs/FSD.md -Pattern "^## UC-").Count            # >= 5
-Select-String -Path docs/FSD.md -Pattern "Given:|When:|Then:"         # GWT presente
+(Select-String -Path docs/FSD.md -Pattern "^\*\*Given:\*\*").Count    # >= 5
+Select-String -Path docs/FSD.md -Pattern "Loyalty|Groceries|UC-06:"  # sin coincidencias
 ```
+
+Ver `prompts_mejorados/fsd_mejorado.md` (sección **Comandos README**).
 
 ### 4.4 Validación ADRs (PowerShell)
 
@@ -150,6 +161,17 @@ Resumen consolidado (promedio **3 corridas comparativas** por prompt; evaluació
 | Consecuencias negativas (≥5) | 0.7 | 5–8 | +614% |
 | ADRs débiles | 2/3 | 0/3 | −100% |
 | Iteraciones hasta Accepted | 3.7 | 1.0 | −73% |
+
+### Prompt FSD (`fsd_mejorado.md` v2.0)
+
+| Métrica | v0.1 semilla | v2.0 | Δ |
+|---------|--------------|------|---|
+| UCs obligatorios (5/5) | 0 | 5/5 | +100% |
+| GWT completos + alternos | 0% | 100% | +100% |
+| Trazabilidad PRD/US | 0% | 100% | +100% |
+| UCs inventados | Alto | 0 | −100% |
+| Iteraciones hasta aceptable | 3.8 | 1.2 | −68% |
+| Outputs inválidos | 2/3 | 0/3 | −100% |
 
 Detalle de corridas A/B/C: ver secciones **Tres corridas comparativas** en cada archivo `prompts_mejorados/*_mejorado.md`.
 
@@ -274,7 +296,7 @@ Tabla completa en `docs/PRD.md` §4.
 | **C4 Context** | Solo Person/System/System_Ext/Rel; 9 elementos | ✓ mermaid-cli |
 | **C4 Container** | Container/ContainerDb/ContainerQueue; Rel con protocolo | ✓ mermaid-cli |
 | **Coherencia cruzada** | PRD ↔ FSD ↔ ADR ↔ C4 (Kafka, fases, UC) | ✓ revisión v1.1 |
-| **Prompts** | Métricas before/after documentadas | ✓ prd + adr v2.0 |
+| **Prompts** | Métricas before/after documentadas | ✓ prd + fsd + adr v2.0 |
 
 ---
 
@@ -286,7 +308,7 @@ Tabla completa en `docs/PRD.md` §4.
 | 2 | ¿Trazabilidad al brief sin dominio inventado? | ✓ Out explícito en PRD |
 | 3 | ¿ADRs con trade-offs y consecuencias negativas? | ✓ 0001 y 0002 |
 | 4 | ¿C4 L1 sin detalle interno; L2 con Kafka y protocolos? | ✓ |
-| 5 | ¿Prompts mejorados ≥2 con métricas y changelog? | ✓ prd + adr v2.0 |
+| 5 | ¿Prompts mejorados ≥3 con métricas y changelog? | ✓ prd + fsd + adr v2.0 |
 | 6 | ¿Comandos reproducibles en README? | ✓ §4 |
 | 7 | ¿Decisiones alineadas Richardson + Strangler? | ✓ |
 | 8 | ¿NFR-05 (Stripe) y NFR-09 (migración) cubiertos? | ✓ PRD + ADR + FSD UC-04 |
@@ -305,4 +327,4 @@ Tabla completa en `docs/PRD.md` §4.
 
 ---
 
-*README — Laboratorio FTGO. Última alineación: PRD/FSD/ADR/C4 v1.1, prompts v2.0.*
+*README — Laboratorio FTGO. Última alineación: PRD/FSD/ADR/C4 v1.1, prompts PRD/FSD/ADR v2.0 (P0 cerrado).*
