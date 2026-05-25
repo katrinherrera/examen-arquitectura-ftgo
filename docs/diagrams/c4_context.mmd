@@ -1,24 +1,24 @@
 C4Context
-    title FTGO — Diagrama de Contexto (C4 Nivel 1)
+    title FTGO — Diagrama de Contexto (C4 Nivel 1) [v1.1]
 
-    Person(consumidor, "Consumidor", "Cliente final que realiza pedidos y consulta entregas [STK-01] [US-01]")
-    Person(restaurante, "Restaurante", "Partner que gestiona tickets de cocina [STK-02] [US-02]")
-    Person(courier, "Courier", "Repartidor que acepta y ejecuta entregas [STK-03] [US-03]")
-    Person(backoffice, "Empleado FTGO", "Operaciones y soporte back office [STK-04] [Brief §A.2]")
+    Person(consumidor, "Consumidor", "Cliente final — pedidos y tracking [STK-01] [US-01]")
+    Person(restaurante, "Restaurante", "Partner — menú y tickets cocina [STK-02] [US-02]")
+    Person(courier, "Courier", "Repartidor — entregas [STK-03] [US-03]")
+    Person(backoffice, "Empleado FTGO", "Operaciones y soporte [STK-04] [Brief §A.2]")
 
-    System(ftgo, "FTGO Platform", "Marketplace de delivery: pedidos, cocina, entrega y facturación. Migración Strangler [PRD NFR-09] [ADR-0001]")
+    System(ftgo, "FTGO Platform", "Marketplace delivery. Vista única del producto durante migración Strangler [PRD NFR-09] [ADR-0001]")
 
-    System_Ext(monolito, "Monolito Legacy", "Aplicación monolito Java WAR coexistiendo durante migración incremental [ADR-0001]")
-    System_Ext(stripe, "Stripe", "Procesamiento de pagos [STK-06] [PRD NFR-05]")
-    System_Ext(maps, "Google Maps", "Rutas y ETA de entrega [STK-06] [PRD NFR-04]")
-    System_Ext(notify_ext, "SendGrid / Twilio", "Email, SMS y notificaciones [STK-06] [PRD C-07]")
+    System_Ext(monolito, "Monolito Legacy", "Sistema legado Java WAR — dependencia temporal de la plataforma [ADR-0001]")
+    System_Ext(stripe, "Stripe", "Pagos [STK-06] [PRD NFR-05]")
+    System_Ext(maps, "Google Maps", "Geo y ETA [STK-06] [PRD NFR-04]")
+    System_Ext(notify_ext, "SendGrid / Twilio", "Mensajería [STK-06] [PRD C-07]")
 
     Rel(consumidor, ftgo, "Realiza pedidos, paga y consulta tracking", "HTTPS/JSON")
     Rel(restaurante, ftgo, "Gestiona menú y tickets de cocina", "HTTPS/JSON")
     Rel(courier, ftgo, "Acepta entregas y actualiza estado", "HTTPS/JSON")
     Rel(backoffice, ftgo, "Opera pedidos y configuración", "HTTPS/JSON")
 
-    Rel(ftgo, monolito, "Enruta tráfico no migrado (Strangler)", "HTTPS")
-    Rel(ftgo, stripe, "Cobra y reembolsa pagos", "HTTPS/REST")
+    Rel(ftgo, monolito, "Delega rutas no migradas (Strangler)", "HTTPS/REST")
+    Rel(ftgo, stripe, "Procesa pagos y reembolsos", "HTTPS/REST")
     Rel(ftgo, maps, "Calcula rutas y ETA", "HTTPS/REST")
-    Rel(ftgo, notify_ext, "Envía notificaciones a usuarios", "HTTPS/REST")
+    Rel(ftgo, notify_ext, "Envía notificaciones", "HTTPS/REST")

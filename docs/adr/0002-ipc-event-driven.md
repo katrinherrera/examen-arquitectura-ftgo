@@ -191,9 +191,10 @@ Media-alta; Strangler con **mismos topics** monolito y MS [ADR-0001 F0–F2].
 
 | Topic | Productores | Consumidores |
 |-------|-------------|--------------|
-| `ftgo.order.events` | Order MS / monolito (ruta activa) | Delivery, Notification |
+| `ftgo.order.events` | Order MS / monolito (ruta activa) | Delivery, Notification, Kitchen |
 | `ftgo.payment.events` | Billing monolito (F1), Billing MS (F2) | Order, Notification |
 | `ftgo.delivery.events` | Delivery MS | Order, Notification |
+| `ftgo.kitchen.commands` | Kitchen Service | Order Service |
 
 **Key:** `orderId`. **Broker:** Apache Kafka — `ContainerQueue` en C4.
 
