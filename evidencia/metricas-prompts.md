@@ -5,7 +5,7 @@
 | **Repositorio** | examen-arquitectura-ftgo |
 | **Fecha registro** | 2026-05-24 |
 | **Entorno** | Cursor IDE + agente IA |
-| **Modelo declarado** | Composer (agente Cursor) — registrar el modelo exacto de tu sesión si el curso lo exige |
+| **Modelo declarado** | Composer (agente Cursor) |
 | **Brief** | Caso FTGO oficial [Brief §A.1–A.4] |
 | **Metodología** | 3 corridas por prompt (A=semilla v0.1, B=v2.0 sin checklist, C=v2.0 completo); evaluación manual checklist rúbrica |
 
@@ -80,14 +80,6 @@ npx -y @mermaid-js/mermaid-cli@11.4.0 -i docs/diagrams/c4_container.mmd -o docs/
 # Validar PRD post v1.2 C-04
 Select-String -Path docs/PRD.md -Pattern "Kitchen Service.*Order Service"
 ```
-
----
-
-## Notas para el evaluador
-
-1. Las corridas A/B son **simulación controlada** (misma entrada, distinto prompt); la corrida C corresponde a los artefactos entregados en el repositorio.
-2. Actualizar columna **Modelo** con el identificador exacto del proveedor si la facultad lo requiere (p. ej. `claude-4.6-sonnet`, `gpt-4.1`).
-3. Detalle narrativo de cada corrida: `prompts_mejorados/prd_mejorado.md`, `fsd_mejorado.md`, `adr_mejorado.md` § *Tres corridas comparativas*.
 
 ---
 
