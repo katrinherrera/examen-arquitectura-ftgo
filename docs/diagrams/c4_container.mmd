@@ -1,2 +1,84 @@
 C4Container
-  title FTGO — Container Diagram (placeholder)
+    title FTGO — Diagrama de Contenedores (C4 Nivel 2)
+
+    Person(consumidor, "Consumidor", "STK-01 [US-01]")
+    Person(restaurante, "Restaurante", "STK-02 [US-02]")
+    Person(courier, "Courier", "STK-03 [US-03]")
+    Person(backoffice, "Empleado FTGO", "STK-04 [Brief §A.2]")
+
+    Container(mobile_app, "Mobile App", "iOS / Android", "App consumidor y courier [FSD UC-01 UC-03 UC-05]")
+    Container(web_admin, "Web Admin", "React SPA", "Back office y terminal cocina restaurante [FSD UC-02]")
+
+    Container_Boundary(ftgo, "FTGO Platform") {
+
+        Container(gateway, "API Gateway", "Spring Cloud Gateway", "Strangler routing y correlation-id [ADR-0001] [NFR-08]")
+
+        Container(consumer_svc, "Consumer Service", "Java / Spring Boot", "C-01 Consumer Management [PRD]")
+        ContainerDb(consumer_db, "Consumer DB", "PostgreSQL", "Datos consumidor [DB-per-service]")
+
+        Container(restaurant_svc, "Restaurant Service", "Java / Spring Boot", "C-02 Restaurant Management [PRD]")
+        ContainerDb(restaurant_db, "Restaurant DB", "PostgreSQL", "Menús y partners [DB-per-service]")
+
+        Container(order_svc, "Order Service", "Java / Spring Boot", "C-03 Order Taking; dueño aggregate Order [PRD NFR-07]")
+        ContainerDb(order_db, "Order DB", "PostgreSQL", "Pedidos y estados [DB-per-service]")
+
+        Container(kitchen_svc, "Kitchen Service", "Java / Spring Boot", "C-04 Order Fulfillment / Kitchen [FSD UC-02]")
+        ContainerDb(kitchen_db, "Kitchen DB", "PostgreSQL", "Proyección cola tickets cocina [DB-per-service]")
+
+        Container(delivery_svc, "Delivery Service", "Java / Spring Boot", "C-05 Delivery [FSD UC-03 UC-05]")
+        ContainerDb(delivery_db, "Delivery DB", "PostgreSQL", "Entregas y posiciones [DB-per-service]")
+
+        Container(billing_svc, "Billing Service", "Java / Spring Boot", "C-06 Billing [FSD UC-04] [PRD NFR-10]")
+        ContainerDb(billing_db, "Billing DB", "PostgreSQL", "Pagos y liquidación [DB-per-service]")
+
+        Container(notification_svc, "Notification Service", "Java / Spring Boot", "C-07 Notifications [PRD]")
+        ContainerDb(notification_db, "Notification DB", "PostgreSQL", "Registro envíos [DB-per-service]")
+
+        Container(monolito, "Monolito Legacy", "Java WAR", "Rutas no migradas; adaptador Strangler [ADR-0001 F1]")
+        ContainerDb(monolito_db, "Monolito DB", "PostgreSQL", "Esquema legacy en migración")
+
+        ContainerQueue(kafka, "Event Broker", "Apache Kafka", "ftgo.order|payment|delivery.events [ADR-0002]")
+    }
+
+    System_Ext(stripe, "Stripe", "PSP pagos [STK-06]")
+    System_Ext(maps, "Google Maps", "Rutas y ETA [STK-06]")
+    System_Ext(notify_ext, "SendGrid / Twilio", "Email y SMS [STK-06]")
+
+    Rel(consumidor, mobile_app, "Usa app móvil", "HTTPS")
+    Rel(courier, mobile_app, "Usa app courier", "HTTPS")
+    Rel(restaurante, web_admin, "Gestiona tickets cocina", "HTTPS")
+    Rel(backoffice, web_admin, "Opera plataforma", "HTTPS")
+
+    Rel(mobile_app, gateway, "Invoca APIs FTGO", "HTTPS/JSON")
+    Rel(web_admin, gateway, "Invoca APIs FTGO", "HTTPS/JSON")
+
+    Rel(gateway, consumer_svc, "Perfil y direcciones", "HTTPS/REST")
+    Rel(gateway, restaurant_svc, "Menús y disponibilidad", "HTTPS/REST")
+    Rel(gateway, order_svc, "Crear y consultar pedidos UC-01", "HTTPS/REST")
+    Rel(gateway, kitchen_svc, "Aceptar/rechazar ticket UC-02", "HTTPS/REST")
+    Rel(gateway, delivery_svc, "Asignación y tracking UC-03 UC-05", "HTTPS/REST")
+    Rel(gateway, billing_svc, "Checkout y pagos UC-04", "HTTPS/REST")
+    Rel(gateway, monolito, "Enruta rutas legacy Strangler", "HTTPS/REST")
+
+    Rel(consumer_svc, consumer_db, "Lee y escribe", "JDBC/PostgreSQL")
+    Rel(restaurant_svc, restaurant_db, "Lee y escribe", "JDBC/PostgreSQL")
+    Rel(order_svc, order_db, "Lee y escribe aggregate Order", "JDBC/PostgreSQL")
+    Rel(kitchen_svc, kitchen_db, "Lee y escribe proyección tickets", "JDBC/PostgreSQL")
+    Rel(delivery_svc, delivery_db, "Lee y escribe entregas", "JDBC/PostgreSQL")
+    Rel(billing_svc, billing_db, "Lee y escribe pagos", "JDBC/PostgreSQL")
+    Rel(notification_svc, notification_db, "Lee y escribe log notificaciones", "JDBC/PostgreSQL")
+    Rel(monolito, monolito_db, "Lee y escribe legacy", "JDBC/PostgreSQL")
+
+    Rel(order_svc, kafka, "Publica order.events", "Kafka")
+    Rel(kitchen_svc, kafka, "Publica kitchen.commands", "Kafka")
+    Rel(order_svc, kafka, "Consume kitchen.commands y payment.events", "Kafka")
+    Rel(billing_svc, kafka, "Publica payment.events", "Kafka")
+    Rel(monolito, kafka, "Publica payment.events F1 Strangler", "Kafka")
+    Rel(delivery_svc, kafka, "Consume order.events", "Kafka")
+    Rel(delivery_svc, kafka, "Publica delivery.events", "Kafka")
+    Rel(order_svc, kafka, "Consume delivery.events", "Kafka")
+    Rel(notification_svc, kafka, "Consume order payment delivery events", "Kafka")
+
+    Rel(billing_svc, stripe, "Autoriza y captura pagos", "HTTPS/REST")
+    Rel(delivery_svc, maps, "Obtiene rutas y ETA", "HTTPS/REST")
+    Rel(notification_svc, notify_ext, "Envía email SMS push", "HTTPS/REST")
