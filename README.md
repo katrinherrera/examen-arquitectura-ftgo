@@ -33,6 +33,7 @@ examen-arquitectura-ftgo/
 | `docs/diagrams/c4_context.mmd` | C4 Nivel 1 — Context |
 | `docs/diagrams/c4_container.mmd` | C4 Nivel 2 — Container |
 | `prompts_mejorados/prd_mejorado.md` | Prompt PRD v2.0 (anti-patterns, verificación, métricas) |
+| `prompts_mejorados/adr_mejorado.md` | Prompt ADR v2.0 (trade-offs, NFRs, validaciones) |
 | `prompts_mejorados/*.md` | Prompts refinados con métricas y changelog |
 
 ## Generar PRD con prompt mejorado
@@ -44,6 +45,18 @@ Select-String -Path docs/PRD.md -Pattern "## 1\. Contexto","## 2\. Stakeholders"
 ```
 
 Ver instrucciones completas en `prompts_mejorados/prd_mejorado.md` (sección **Comandos README**).
+
+## Generar ADRs con prompt mejorado
+
+```bash
+# Validar 3 opciones en ADR-0001
+(Select-String -Path docs/adr/0001-descomposicion-microservicios.md -Pattern "### Opción").Count
+
+# Validar Kafka en ADR-0002
+Select-String -Path docs/adr/0002-ipc-event-driven.md -Pattern "ContainerQueue|Kafka"
+```
+
+Ver `prompts_mejorados/adr_mejorado.md` — parámetro `ADR-0001` o `ADR-0002`.
 
 ## Trazabilidad
 
